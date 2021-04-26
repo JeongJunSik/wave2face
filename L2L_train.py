@@ -1,6 +1,6 @@
 from os.path import dirname, join, basename, isfile
 from tqdm import tqdm
-from L2L import *
+from L2L6 import *
 #from models import SyncNet_color as SyncNet
 #from models import Wav2Lip as Wav2Lip
 #import audio
@@ -122,7 +122,48 @@ class lrs(Dataset):
         mels = np.asarray(mels)
 
         return mels
-    
+    def mask_landmark(self,landmark):
+        
+        
+        x_lip_argmin = np.argmin(landmark[48:68,0])
+        x_lip_argmax = np.argmax(landmark[48:68,0])
+        y_lip_argmin = np.argmin(landmark[48:68,1])
+        y_lip_argmax = np.argmax(landmark[48:68,1])
+
+        # np.where(  landmark[0:17,0][  np.where((landmark[0:17,0] >= x_min))  ] <= x_max    )
+        #print(np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,0], 10000) )
+        x_chin_argmin = np.argmin(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,0], 10000)   )
+        x_chin_argmax = np.argmax(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,0], -10000 )   )
+        y_chin_argmin = np.argmin(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,1], 10000 )   )
+        y_chin_argmax = np.argmax(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,1], -10000 )   )
+
+
+        """ x axis """
+        if landmark[0:17,0][x_chin_argmin] <= landmark[48:68,0][x_lip_argmin]  :
+            x_min = int(landmark[0:17,0][x_chin_argmin])
+        else:
+            x_min = int(landmark[48:68,0][x_lip_argmin])
+
+        if landmark[0:17,0][x_chin_argmax] >= landmark[48:68,0][x_lip_argmax]  :
+            x_max = int(landmark[0:17,0][x_chin_argmax])
+        else:
+            x_max = int(landmark[48:68,0][x_lip_argmax])
+
+        """ y axis """
+        y_min = int(landmark[48:68,1][y_lip_argmin])
+        y_max = int(landmark[0:17,1][y_chin_argmax])
+
+        chin_zero_x_index = np.where(  np.where( (landmark[0:17,0] >= x_min), landmark[0:17,0], +10000   ) <= x_max   )
+        chin_zero_y_index = np.where(  np.where( (landmark[0:17,1] >= y_min), landmark[0:17,1], +10000   ) <= y_max  )
+        lip_zero_x_index = np.where(   np.where( (landmark[48:68,0] >= x_min), landmark[48:68,0], +10000 ) <= x_max  )
+        lip_zero_y_index = np.where(   np.where( (landmark[48:68,1] >= y_min), landmark[48:68,1], +10000 ) <= y_max  )
+
+        landmark[0:17,:][chin_zero_x_index,:] = 0
+        landmark[0:17,:][chin_zero_y_index,:] = 0
+        landmark[48:68,:][lip_zero_x_index,:] = 0
+        landmark[48:68,:][lip_zero_y_index,:] = 0
+        
+        return landmark
     def prepare_window(self, window,window_image):
         # 3 x T x H x W
         # 5 x 68 x 2  -> x y 순서임
@@ -251,7 +292,11 @@ class lrs(Dataset):
             landmark_GT=np.asarray(deepcopy(window))
             landmark_prior=np.asarray(deepcopy(wrong_window))
             
-               
+            for i in range(b):
+                window[i][48:68,:] = 0
+                
+                
+            
         
             
             window = self.prepare_window(deepcopy(window),window_image)
@@ -264,90 +309,52 @@ class lrs(Dataset):
             
             
             wrong_window = self.prepare_window(deepcopy(landmark_prior),window_image2)
-            #x = np.concatenate([window, wrong_window], axis=1)
+            x = np.concatenate([window, wrong_window], axis=2)
             
-            #x = torch.FloatTensor(x)
+            x = torch.FloatTensor(x)
             mel = torch.FloatTensor(mel.T).unsqueeze(0)
             indiv_mels = torch.FloatTensor(indiv_mels).unsqueeze(1)
-            y = np.concatenate([GT, wrong_window], axis=1)
+            y = GT
+            #y = np.concatenate([GT, wrong_window], axis=1)
             y = torch.FloatTensor(y)
             
             #print("total get item, time :", time.time() - start)
-            return window,wrong_window, indiv_mels, mel, y,landmark_prior,landmark_GT,window_image[0].shape,A[0],Masked
+            return x, indiv_mels, mel, y,landmark_prior,landmark_GT,window_image[0].shape,A[0],Masked
 
 
 ################################################################################
-def mask_landmark(landmark):
-        
-        
-        x_lip_argmin = np.argmin(landmark[48:68,0])
-        x_lip_argmax = np.argmax(landmark[48:68,0])
-        y_lip_argmin = np.argmin(landmark[48:68,1])
-        y_lip_argmax = np.argmax(landmark[48:68,1])
 
-        # np.where(  landmark[0:17,0][  np.where((landmark[0:17,0] >= x_min))  ] <= x_max    )
-        #print(np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,0], 10000) )
-        x_chin_argmin = np.argmin(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,0], 10000)   )
-        x_chin_argmax = np.argmax(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,0], -10000 )   )
-        y_chin_argmin = np.argmin(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,1], 10000 )   )
-        y_chin_argmax = np.argmax(  np.where( landmark[0:17,1] >= landmark[48:68,1][y_lip_argmin], landmark[0:17,1], -10000 )   )
-
-
-        """ x axis """
-        if landmark[0:17,0][x_chin_argmin] <= landmark[48:68,0][x_lip_argmin]  :
-            x_min = int(landmark[0:17,0][x_chin_argmin])
-        else:
-            x_min = int(landmark[48:68,0][x_lip_argmin])
-
-        if landmark[0:17,0][x_chin_argmax] >= landmark[48:68,0][x_lip_argmax]  :
-            x_max = int(landmark[0:17,0][x_chin_argmax])
-        else:
-            x_max = int(landmark[48:68,0][x_lip_argmax])
-
-        """ y axis """
-        y_min = int(landmark[48:68,1][y_lip_argmin])
-        y_max = int(landmark[0:17,1][y_chin_argmax])
-
-        chin_zero_x_index = np.where(  np.where( (landmark[0:17,0] >= x_min), landmark[0:17,0], +10000   ) <= x_max   )
-        chin_zero_y_index = np.where(  np.where( (landmark[0:17,1] >= y_min), landmark[0:17,1], +10000   ) <= y_max  )
-        lip_zero_x_index = np.where(   np.where( (landmark[48:68,0] >= x_min), landmark[48:68,0], +10000 ) <= x_max  )
-        lip_zero_y_index = np.where(   np.where( (landmark[48:68,1] >= y_min), landmark[48:68,1], +10000 ) <= y_max  )
-
-        landmark[0:17,:][chin_zero_x_index,:] = 0
-        landmark[0:17,:][chin_zero_y_index,:] = 0
-        landmark[48:68,:][lip_zero_x_index,:] = 0
-        landmark[48:68,:][lip_zero_y_index,:] = 0
-        
-        return landmark
 def save_sample_images(landmark_pred,landmark_GT,image, landmark_prior,GT,Masked,global_step, checkpoint_dir):
     #print(landmark_pred)
     #print(landmark_GT)
     #import pdb;pdb.set_trace()
     landmark_pred=landmark_pred.detach().cpu()
     plt.scatter(landmark_pred[0][0:68,0], -landmark_pred[0][0:68,1])
-    plt.savefig('/root/project/sh/checkpoint/eval/pred1_{}.jpg'.format(global_step))
+    plt.savefig('/root/project/sh/checkpoint/eval/pred1_{}.jpg'.format(global_epoch))
     plt.close()
+    
     plt.scatter(landmark_pred[0][68:,0], -landmark_pred[0][68:,1])
-    plt.savefig('/root/project/sh/checkpoint/eval/pred2_{}.jpg'.format(global_step))
+    plt.savefig('/root/project/sh/checkpoint/eval/pred2_{}.jpg'.format(global_epoch))
     plt.close()
+    #import pdb;pdb.set_trace()
     landmark_GT=landmark_GT.detach().cpu()
     plt.scatter(landmark_GT[0][:,0], -landmark_GT[0][:,1])
-    plt.savefig('/root/project/sh/checkpoint/eval/GT_{}.jpg'.format(global_step))
+    plt.savefig('/root/project/sh/checkpoint/eval/GT_{}.jpg'.format(global_epoch))
     plt.close()
     GT=GT.detach().cpu()
     plt.scatter(GT[0][:,0], -GT[0][:,1])
-    plt.savefig('/root/project/sh/checkpoint/eval/GT_unnorm_{}.jpg'.format(global_step))
+    plt.savefig('/root/project/sh/checkpoint/eval/GT_unnorm_{}.jpg'.format(global_epoch))
     plt.close()
     landmark_prior=landmark_prior.detach().cpu()
     plt.scatter(landmark_prior[0][:,0], -landmark_prior[0][:,1])
-    plt.savefig('/root/project/sh/checkpoint/eval/prior_{}.jpg'.format(global_step))
+    plt.savefig('/root/project/sh/checkpoint/eval/prior_{}.jpg'.format(global_epoch))
     plt.close()
     Masked=Masked.detach().cpu()
     plt.scatter(Masked[0][:,0], -Masked[0][:,1])
-    plt.savefig('/root/project/sh/checkpoint/eval/Masked_{}.jpg'.format(global_step))
+    plt.savefig('/root/project/sh/checkpoint/eval/Masked_{}.jpg'.format(global_epoch))
     plt.close()
     img = cv2.imread(image)
-    cv2.imwrite('/root/project/sh/checkpoint/eval/image_{}.jpg'.format(global_step), img)
+    cv2.imwrite('/root/project/sh/checkpoint/eval/image_{}.jpg'.format(global_epoch), img)
     a=landmark_pred[0]
     b=landmark_GT[0]
     a=torch.round(a)
@@ -380,7 +387,7 @@ def cosine_loss(a, v, y):
 
     return loss
 
-device = torch.device("cuda" if use_cuda else "cpu")
+
 
 
 recon_loss = nn.L1Loss()
@@ -404,15 +411,9 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
         print('Starting Epoch: {}'.format(global_epoch))
         running_l1_loss = 0.
         prog_bar = tqdm(enumerate(train_data_loader))
-        for step, (window,wrong_window, indiv_mels, mel, gt,landmark_prior,landmark_GT,shape,image,Masked) in prog_bar:
+        for step, (x, indiv_mels, mel, gt,landmark_prior,landmark_GT,shape,image,Masked) in prog_bar:
             #import pdb;pdb.set_trace()
-            b,t,_,_=window.shape
-            for i in range(b):
-                for j in range(t):
-                    window[i][j]=mask_landmark(window[i][j])
-            x = np.concatenate([window, wrong_window], axis=2)
             
-            x = torch.FloatTensor(x)
             #print(len(image))
             model.train()
             optimizer.zero_grad()
@@ -426,8 +427,7 @@ def train(device, model, train_data_loader, test_data_loader, optimizer,
             g = model(indiv_mels, x)
             
            
-
-            
+          
             
             l1loss = recon_loss(g, gt)
 
@@ -472,15 +472,9 @@ def eval_model(test_data_loader, global_step, device, model, checkpoint_dir):
     i=0
     while 1:
         start = 0 # start
-        for window,wrong_window, indiv_mels, mel, gt,landmark_prior,landmark_GT,shape,image,Masked in test_data_loader:
+        for x, indiv_mels, mel, gt,landmark_prior,landmark_GT,shape,image,Masked in test_data_loader:
             #print("pass the model. dataloader, time :", time.time() - start)
-            b,t,_,_=window.shape
-            for i in range(b):
-                for j in range(t):
-                    window[i][j]=mask_landmark(window[i][j])
-            x = np.concatenate([window, wrong_window], axis=2)
             
-            x = torch.FloatTensor(x)
             i+=1
             #print("step : {}".format(i))
             step += 1
@@ -588,7 +582,7 @@ if __name__ == "__main__":
         test_dataset, batch_size=hparams.batch_size,
         num_workers=16)
 
-    device = torch.device("cuda:2" if use_cuda else "cpu")
+    device = torch.device("cuda:0" if use_cuda else "cpu")
     
     # Model
     model = L2L().to(device)
